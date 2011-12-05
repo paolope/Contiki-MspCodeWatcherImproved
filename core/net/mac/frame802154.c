@@ -159,13 +159,8 @@ frame802154_hdrlen(frame802154_t *p)
 {
   field_length_t flen;
   field_len(p, &flen);
-
-  /* Nasty fix for packet buffer alignment */
-  uint8_t ret = 3 + flen.dest_pid_len + flen.dest_addr_len +
+  return 3 + flen.dest_pid_len + flen.dest_addr_len +
     flen.src_pid_len + flen.src_addr_len + flen.aux_sec_len;
-  ret = (ret&1)?ret+1:ret;
-
-  return ret;
 }
 /*----------------------------------------------------------------------------*/
 /**
@@ -241,9 +236,6 @@ frame802154_create(frame802154_t *p, uint8_t *buf, uint8_t buf_len)
     /* TODO Aux security header not yet implemented */
 /*     pos += flen.aux_sec_len; */
   }
-
-  /* Nasty fix for packet buffer alignment */
-  pos = (pos&1)?pos+1:pos;
 
   return pos;
 }
@@ -350,9 +342,6 @@ frame802154_parse(uint8_t *data, uint8_t len, frame802154_t *pf)
     /* TODO aux security header, not yet implemented */
 /*     return 0; */
   }
-
-  /* Nasty fix for packet buffer alignment */
-  p = (((uint16_t)p&1)?p+1:p);
 
   /* header length */
   c = p - data;
