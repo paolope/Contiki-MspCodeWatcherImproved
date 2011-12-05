@@ -386,6 +386,7 @@ public abstract class MspMoteType implements MoteType {
     if (debuggingInfo == null) {
       debuggingInfo = getFirmwareDebugInfo(getELF());
     }
+    //for (File f:debuggingInfo.keySet().toArray(new File[0])) logger.info(f.toString());
     return debuggingInfo;
   }
 
@@ -395,6 +396,7 @@ public abstract class MspMoteType implements MoteType {
 
     if (elf.getDebug() == null) {
       // No debug information is available
+    	logger.info("No debug information is available");
       return fileToLineHash;
     }
 
@@ -402,12 +404,12 @@ public abstract class MspMoteType implements MoteType {
     ArrayList<Integer> addresses = elf.getDebug().getExecutableAddresses();
     if (addresses == null) {
       // No debug information is available
+    	logger.info("No executable addresses found");
       return fileToLineHash;
     }
 
     for (int address: addresses) {
       DebugInfo info = elf.getDebugInfo(address);
-
       if (info != null && info.getPath() != null && info.getFile() != null && info.getLine() >= 0) {
 
         /* Nasty Cygwin-Windows fix */
@@ -433,6 +435,7 @@ public abstract class MspMoteType implements MoteType {
         }
 
         lineToAddrHash.put(info.getLine(), address);
+        //logger.info("File: "+file+" Line: "+info.getLine()+" Address: "+address);
       }
     }
 

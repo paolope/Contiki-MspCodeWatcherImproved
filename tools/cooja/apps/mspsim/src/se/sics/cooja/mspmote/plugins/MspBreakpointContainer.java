@@ -216,24 +216,30 @@ public class MspBreakpointContainer implements WatchpointMote {
    */
   public Integer getExecutableAddressOf(File file, int lineNr) {
     if (file == null || lineNr < 0 || debuggingInfo == null) {
+    	logger.info("File or debuggingInfo is null or lineNr < 0");
       return null;
     }
 
     /* Match file */
+    System.out.println("Looking for file: "+file);
     Hashtable<Integer, Integer> lineTable = debuggingInfo.get(file);
     if (lineTable == null) {
+    	logger.info("debuggingInfo.get(" + file +") returns null");
       Enumeration<File> fileEnum = debuggingInfo.keys();
       while (fileEnum.hasMoreElements()) {
         File f = fileEnum.nextElement();
         if (f != null && f.getName().equals(file.getName())) {
           lineTable = debuggingInfo.get(f);
+          logger.info("found a file: "+f);
           break;
         }
       }
     }
     if (lineTable == null) {
+      logger.info("No file found");
       return null;
     }
+    logger.info("Hashtable size: "+lineTable.size());
 
     /* Match line number */
     Integer address = lineTable.get(lineNr);
@@ -247,7 +253,7 @@ public class MspBreakpointContainer implements WatchpointMote {
         }
       }
     }
-    
+    logger.info("No line matched");
     return null;
   }
 

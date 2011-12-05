@@ -41,8 +41,13 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.Map;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.Vector;
 
 import javax.swing.AbstractAction;
@@ -103,7 +108,7 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
 
   private JComboBox fileComboBox;
   private String[] debugInfoMap = null;
-  private File[] sourceFiles;
+  private SortedMap<String,File> sourceFiles;
   
   /**
    * Mini-debugger for MSP Motes.
@@ -137,7 +142,7 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
           setBackground(list.getSelectionBackground());
           setForeground(list.getSelectionForeground());
           if (index > 0) {
-            list.setToolTipText(sourceFiles[index-1].getPath());
+            list.setToolTipText(sourceFiles.values().toArray(new File[0])[index-1].getPath());
           }
         } else {
           setBackground(list.getBackground());
@@ -170,9 +175,21 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
     
     /* Execution control panel (south) */
     JPanel controlPanel = new JPanel();
-    JButton button = new JButton(stepAction);
-    stepAction.putValue(Action.NAME, "Step instruction");
+    JButton button = new JButton(stepIntoAction);
+    JButton button2 = new JButton(stepOverAction);
+    JButton button3 = new JButton(callReturnAction);
+    JButton button4 = new JButton(continuePauseAction);
+    JButton button5 = new JButton(stepCodeLine);
+    stepIntoAction.putValue(Action.NAME, "Step into");
+    stepOverAction.putValue(Action.NAME, "Step over");
+    callReturnAction.putValue(Action.NAME, "Return call");
+    continuePauseAction.putValue(Action.NAME, "Continue");
+    stepCodeLine.putValue(Action.NAME, "Step line of code");
+    controlPanel.add(button4);
     controlPanel.add(button);
+    controlPanel.add(button2);
+    controlPanel.add(button3);
+    controlPanel.add(button5);
 
     
     /* Main components: assembler and C code + breakpoints (center) */
@@ -185,28 +202,38 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
         new JScrollPane(breakpointsUI)
     );
     leftSplitPane.setOneTouchExpandable(true);
-    leftSplitPane.setDividerLocation(0.0);
+    leftSplitPane.setDividerLocation(0.1);
     rightSplitPane = new JSplitPane(
         JSplitPane.HORIZONTAL_SPLIT,
         leftSplitPane,
         new JScrollPane(sourceCodeUI)
         );
     rightSplitPane.setOneTouchExpandable(true);
-    rightSplitPane.setDividerLocation(0.0);
+    rightSplitPane.setDividerLocation(0.1);
 
     add(BorderLayout.NORTH, browseBox);
     add(BorderLayout.CENTER, rightSplitPane);
     add(BorderLayout.SOUTH, controlPanel);
 
+
+    continuePauseAction.setEnabled(true);
     
     /* Observe when simulation starts/stops */
     simulation.addObserver(simObserver = new Observer() {
       public void update(Observable obs, Object obj) {
         if (!simulation.isRunning()) {
-          stepAction.setEnabled(true);
+          continuePauseAction.putValue(Action.NAME, "Continue");
+          stepIntoAction.setEnabled(true);
+          stepOverAction.setEnabled(true);
+          callReturnAction.setEnabled(true);
+          stepCodeLine.setEnabled(true);
           updateInfo();
         } else {
-          stepAction.setEnabled(false);
+          continuePauseAction.putValue(Action.NAME, "Pause");
+          stepIntoAction.setEnabled(false);
+          stepOverAction.setEnabled(false);
+          callReturnAction.setEnabled(false);
+          stepCodeLine.setEnabled(false);
         }
       }
     });
@@ -219,15 +246,21 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
     sourceFiles = getSourceFiles(mspMote, debugInfoMap);
     fileComboBox.removeAllItems();
     fileComboBox.addItem("[view sourcefile]");
-    for (File f: sourceFiles) {
-      fileComboBox.addItem(f.getName());
+    for (String s: sourceFiles.keySet()) {
+      fileComboBox.addItem(s);
     }
     fileComboBox.setSelectedIndex(0);
   }
 
   public void displaySourceFile(File file, final int line) {
-    if (file != null &&
-        sourceCodeUI.displayedFile != null &&
+	  logger.info("Called displayFile with file = "+file+" and line = "+line);
+
+	  /* Check for file existence */
+	  if (file != null && sourceFiles.containsKey(file.getName())) {
+		  file = sourceFiles.get(file.getName());
+	  } else return;
+		  
+    if (sourceCodeUI.displayedFile != null &&
         file.compareTo(sourceCodeUI.displayedFile) == 0) {
       /* No need to reload source file */
       SwingUtilities.invokeLater(new Runnable() {
@@ -237,6 +270,7 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
       });
       return;
     }
+    
 
     /* Load source file from disk */
     String[] codeData = readTextFile(file);
@@ -252,7 +286,7 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
       return;
     }
 
-    File selectedFile = sourceFiles[index-1];
+    File selectedFile = sourceFiles.get(fileComboBox.getSelectedItem());
     displaySourceFile(selectedFile, -1);
   }
 
@@ -294,28 +328,9 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
         return;
       }
 
-      String path = 
-        new File(debugInfo.getPath(), debugInfo.getFile()).getPath().replace('\\', '/');
-      if (path == null) {
-        return;
-      }
-
-      /* Debug info to source file map */
-      if (debugInfoMap != null && debugInfoMap.length == 2) {
-        if (path.startsWith(debugInfoMap[0])) {
-          path = path.replace(debugInfoMap[0], debugInfoMap[1]);
-        }
-      }
-
-      /* Nasty Cygwin-Windows fix */
-      if (path.contains("/cygdrive/")) {
-        int index = path.indexOf("/cygdrive/");
-        char driveCharacter = path.charAt(index+10);
-        path = path.replace("/cygdrive/" + driveCharacter + "/", driveCharacter + ":/");
-      }
-
-      currentCodeFile = new File(path).getCanonicalFile();
+      currentCodeFile = new File(debugInfo.getFile());
       currentLineNumber = debugInfo.getLine();
+      
     } catch (Exception e) {
       logger.fatal("Exception: " + e.getMessage(), e);
       currentCodeFile = null;
@@ -445,13 +460,13 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
     updateFileComboBox();
   }
   
-  private static File[] getSourceFiles(MspMote mote, String[] map) {
+  private static SortedMap<String, File> getSourceFiles(MspMote mote, String[] map) {
     final String[] sourceFiles;
     try {
       ELFDebug debug = ((MspMoteType)mote.getType()).getELF().getDebug();
       if (debug == null) {
         logger.fatal("Error: No debug information is available");
-        return new File[0];
+        return new TreeMap<String, File>();
       }
       sourceFiles = debug.getSourceFiles();
     } catch (IOException e1) {
@@ -494,7 +509,7 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
         if (file.exists() && file.isFile()) {
           existing.add(file);
         } else {
-          /*logger.warn("Can't locate source file, skipping: " + file.getPath());*/
+          logger.warn("Can't locate source file, skipping: " + file.getPath());
         }
       } else {
         /* Accept all files without existence check */
@@ -537,7 +552,10 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
       sorted.add(0, contikiSource);
     }
 
-    return sorted.toArray(new File[0]);
+    /* Convert to Hashtable */
+    SortedMap<String, File> sourceFilesHashtable = new TreeMap<String,File>();
+    for (File f: sorted) sourceFilesHashtable.put(f.getName(),f);
+    return sourceFilesHashtable;
   }
 
   /**
@@ -620,7 +638,7 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
     }
   };
 
-  private AbstractAction stepAction = new AbstractAction() {
+  private AbstractAction stepIntoAction = new AbstractAction() {
     public void actionPerformed(ActionEvent e) {
       try {
         mspMote.getCPU().stepInstructions(1);
@@ -631,6 +649,129 @@ public class MspCodeWatcher extends VisPlugin implements MotePlugin {
     }
   };
 
+  private AbstractAction stepOverAction = new AbstractAction() {
+    public void actionPerformed(ActionEvent e) {
+      try {
+    	int pc, newpc, instruction;
+
+    	// get CPU reference
+    	MSP430 cpu = mspMote.getCPU();
+    	
+    	// read program counter
+        pc = cpu.readRegister(MSP430.PC);
+        // read current instruction
+        instruction = cpu.read(pc, MSP430.MODE_WORD);
+        if ((instruction & 0xff00) == 0x1800) { // Long instruction?
+        	pc += 2;
+        	instruction = cpu.read(pc, MSP430.MODE_WORD);
+        }
+        
+        // get opcode, suppose it's a call
+        if ((instruction & 0xff80) == MSP430.CALL)
+        {
+        	do {
+        		cpu.stepInstructions(1);
+        		newpc = cpu.readRegister(MSP430.PC);
+        	} while (newpc != pc + 4); // Big risk here :)
+        } else {
+        	cpu.stepInstructions(1);
+        }
+       } catch (EmulationException ex) {
+        logger.fatal("Error: ", ex);
+      }
+      updateInfo();
+    }
+  };
+
+  private AbstractAction callReturnAction = new AbstractAction() {
+	    public void actionPerformed(ActionEvent e) {
+	      try {
+	    	int pc, instruction, opleft = 1000000, depth = 1;
+
+	    	// get CPU reference
+	    	MSP430 cpu = mspMote.getCPU();
+	    	
+	    	while (depth > 0 && opleft-- > 0) {
+		    	// read program counter
+		        pc = cpu.readRegister(MSP430.PC);
+		        // read current instruction
+		        instruction = cpu.read(pc, MSP430.MODE_WORD);
+		        if ((instruction & 0xff00) == 0x1800) { // Long instruction?
+		        	pc += 2;
+		        	instruction = cpu.read(pc, MSP430.MODE_WORD);
+		        }
+		        if (instruction == MSP430.RETURN) depth--;
+		        else if ((instruction & 0xff80) == MSP430.CALL) depth++; 
+		        cpu.stepInstructions(1);
+	    	} // Big risk here :)
+		      if (depth > 0) logger.info("Return not found! Stopped after 1000000 cycles");
+	       } catch (EmulationException ex) {
+	        logger.fatal("Error: ", ex);
+	      }
+	      updateInfo();
+	    }
+	  };
+
+	  private AbstractAction stepCodeLine = new AbstractAction() {
+		    public void actionPerformed(ActionEvent e) {
+		      try {
+		    	int pc, instruction, opleft = 1000000, oldline, newline;
+		    	String oldfile, newfile;
+
+		    	// get debug reference and cpu
+		    	ELFDebug debug = ((MspMoteType)mspMote.getType()).getELF().getDebug();
+		    	if (debug == null) {
+		    		return;
+		    	}
+		    	MSP430 cpu = mspMote.getCPU();
+		    	if (cpu == null) {
+		    		return;
+		    	}
+
+		    	// get old file and line of code
+		    	DebugInfo debugInfo = debug.getDebugInfo(cpu.reg[MSP430.PC]);
+		    	if (debugInfo != null) {
+			    	oldfile = debugInfo.getFile();
+			    	oldline = debugInfo.getLine();
+		    	} else {
+		    		oldfile = null;
+		    		oldline = 0;
+		    	}
+
+		    	do {
+			    	// get new line of code
+		    		do {
+		    			cpu.stepInstructions(1);
+		    		} while ((debugInfo = debug.getDebugInfo(cpu.reg[MSP430.PC])) == null || 
+		    				(newfile = debugInfo.getFile()) == null);
+		    		
+			    	newline = debugInfo.getLine();
+			    	opleft--;
+		    	} while (oldline == newline && oldfile.equals(newfile) && opleft-- > 0);
+			      if (oldline == newline && oldfile.equals(newfile)) logger.info("Instruction not switched! Stopped after 1000000 cycles");
+		       } catch (EmulationException ex) {
+		        logger.fatal("Emulation exception: ", ex);
+		      } catch (IOException ex) {
+			    logger.fatal("IO exception: ", ex);
+			}
+		      updateInfo();
+		    }
+		  };
+		  
+	  private AbstractAction continuePauseAction = new AbstractAction() {
+		    public void actionPerformed(ActionEvent e) {
+		      try {
+		        if (simulation.isRunning()) {
+		        	simulation.stopSimulation();
+				    updateInfo();
+		        }
+		        else simulation.startSimulation();
+		      } catch (EmulationException ex) {
+		        logger.fatal("Error: ", ex);
+		      }
+		    }
+		  };
+	  
   public Mote getMote() {
     return mspMote;
   }
